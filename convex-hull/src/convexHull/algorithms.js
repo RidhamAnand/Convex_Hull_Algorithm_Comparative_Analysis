@@ -1,4 +1,3 @@
-import { cross, dist, polarAngle } from "./geometry";
 
 // Brute Force O(n^3): for each edge, check all points are on same side
 export function bruteForce(pts) {
@@ -115,73 +114,107 @@ export function jarvisMarch(pts) {
   return steps;
 }
 
-// Graham Scan O(n log n)
+const polarAngle = (p0, p1) => Math.atan2(p1.y - p0.y, p1.x - p0.x);
+const distSq = (p0, p1) => Math.pow(p1.x - p0.x, 2) + Math.pow(p1.y - p0.y, 2);
+const cross = (a, b, c) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+
 export function grahamScan(pts) {
   const steps = [];
   const n = pts.length;
   if (n < 3) {
-    steps.push({ type: "result", hull: pts.slice(), highlight: [], message: "Need at least 3 points.", testing: null });
+    steps.push({ type: "result", hull: pts.slice(), message: "Need at least 3 points." });
     return steps;
   }
 
-  steps.push({ type: "start", hull: [], highlight: [], message: "Graham Scan: Sort by angle from lowest point, then sweep adding/removing from stack.", testing: null });
+  // Flip y so screen coords behave like notebook (y-up)
+  const flipped = pts.map(p => ({ ...p, y: -p.y }));
 
-  const pivot = pts.reduce((min, p, i) => (p.y > pts[min].y || (p.y === pts[min].y && p.x < pts[min].x)) ? i : min, 0);
-  const P0 = pts[pivot];
+  // Pivot: minimum y in flipped coords = bottommost on notebook = topmost on screen
+  const pivot = flipped.reduce((min, p, i) =>
+    (p.y < flipped[min].y || (p.y === flipped[min].y && p.x < flipped[min].x)) ? i : min, 0);
+  const P0 = flipped[pivot];
 
-  steps.push({ type: "pivot", hull: [], highlight: [pivot], message: `Pivot P${pivot} selected (lowest y). All points will be sorted by polar angle from here.`, testing: null });
+  steps.push({
+    type: "pivot",
+    highlight: [pivot],
+    message: `✓ Pivot P${pivot} selected (bottommost point). Starting CCW sweep.`
+  });
 
-  const sorted = pts
+  // Sort by ascending polar angle = CCW order in y-up space
+  // Collinear: closest first → gets popped by cross=0 rule, farthest survives
+  const sorted = flipped
     .map((p, i) => ({ ...p, idx: i }))
     .filter((_, i) => i !== pivot)
     .sort((a, b) => {
       const aA = polarAngle(P0, a), bA = polarAngle(P0, b);
       if (Math.abs(aA - bA) > 1e-9) return aA - bA;
-      return dist(P0, a) - dist(P0, b);
+      return distSq(P0, a) - distSq(P0, b);
     });
 
-  const sortedIdxs = [pivot, ...sorted.map(p => p.idx)];
   const sortedPts = [P0, ...sorted];
+  const sortedIdxs = [pivot, ...sorted.map(p => p.idx)];
 
-  steps.push({ type: "sorted", hull: [], highlight: sortedIdxs, sortedIdxs, message: `Points sorted by polar angle from P${pivot}. Now sweep through them.`, testing: null });
+  steps.push({
+    type: "sorted",
+    highlight: sortedIdxs,
+    sortedIdxs,
+    message: `✓ Sorted ${n} points in CCW order from P${pivot}. Starting sweep...`
+  });
 
   const stack = [0, 1];
-  steps.push({ type: "init_stack", hull: [sortedPts[0], sortedPts[1]], highlight: [sortedIdxs[0], sortedIdxs[1]], stack: stack.slice(), message: `Stack initialized with P${sortedIdxs[0]} and P${sortedIdxs[1]}.`, testing: null });
+
+  steps.push({
+    type: "init_stack",
+    highlight: [sortedIdxs[0], sortedIdxs[1]],
+    sortedIdxs,
+    stack: stack.slice(),
+    message: `Stack initialized: P${sortedIdxs[0]} → P${sortedIdxs[1]}. Rule: cross > 0 = keep, cross ≤ 0 = discard`
+  });
 
   for (let i = 2; i < sortedPts.length; i++) {
     while (stack.length >= 2) {
-      const top = stack[stack.length - 1];
       const second = stack[stack.length - 2];
+      const top    = stack[stack.length - 1];
       const c = cross(sortedPts[second], sortedPts[top], sortedPts[i]);
+
+      const msg = c > 0
+        ? `✓ cross > 0: KEEP P${sortedIdxs[top]}`
+        : `✗ cross ≤ 0: DISCARD P${sortedIdxs[top]}`;
+
       steps.push({
         type: "check_turn",
-        hull: stack.map(s => sortedPts[s]),
         highlight: [sortedIdxs[second], sortedIdxs[top], sortedIdxs[i]],
-        stack: stack.slice(),
+        testing:   [sortedIdxs[second], sortedIdxs[top], sortedIdxs[i]],
         sortedIdxs,
-        message: c <= 0
-          ? `Non-left turn detected (P${sortedIdxs[second]}→P${sortedIdxs[top]}→P${sortedIdxs[i]}): popping P${sortedIdxs[top]} from stack`
-          : `Left turn (P${sortedIdxs[second]}→P${sortedIdxs[top]}→P${sortedIdxs[i]}): P${sortedIdxs[top]} stays`,
-        testing: [sortedIdxs[second], sortedIdxs[top], sortedIdxs[i]],
+        stack: stack.slice(),
         popping: c <= 0,
+        message: `P${sortedIdxs[second]}→P${sortedIdxs[top]}→P${sortedIdxs[i]}: cross=${c.toFixed(1)} ... ${msg}`
       });
+
       if (c <= 0) stack.pop();
       else break;
     }
+
     stack.push(i);
+
     steps.push({
       type: "push",
-      hull: stack.map(s => sortedPts[s]),
       highlight: [sortedIdxs[i]],
-      stack: stack.slice(),
       sortedIdxs,
-      message: `Pushed P${sortedIdxs[i]} onto stack. Stack size: ${stack.length}.`,
-      testing: null,
+      stack: stack.slice(),
+      message: `Added P${sortedIdxs[i]}. Stack: ${stack.map(s => `P${sortedIdxs[s]}`).join("→")}`
     });
   }
 
-  const hull = stack.map(s => sortedPts[s]);
-  steps.push({ type: "result", hull, highlight: [], message: `Done! Hull has ${hull.length} vertices.`, testing: null });
+  // Hull uses original pts (unflipped) for rendering
+  const hull = stack.map(s => pts[sortedIdxs[s]]);
+
+  steps.push({
+    type: "result",
+    hull,
+    message: `✓ Done! CCW Hull: ${hull.length} vertices. cross > 0 → keep, cross ≤ 0 → discard`
+  });
+
   return steps;
 }
 

@@ -135,6 +135,46 @@ export function renderCanvas(canvas, points, step, options = {}) {
     }
   }
 
+  // Graham Scan: Draw turn test with colored dashed lines
+  if (step.type === "check_turn" && testing && testing.length === 3) {
+    const p1 = points[testing[0]];
+    const p2 = points[testing[1]];
+    const p3 = points[testing[2]];
+    
+    if (p1 && p2 && p3) {
+      // Color based on turn direction
+      const color = step.popping ? "rgba(239,68,68,0.7)" : "rgba(52,211,153,0.7)";
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 4]);
+      
+      // Draw the angle turn
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.lineTo(p3.x, p3.y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  // Graham Scan: Draw current hull from stack
+  if ((step.type === "push" || step.type === "init_stack") && sortedIdxs && sortedIdxs.length > 0) {
+    if (step.stack && step.stack.length > 1) {
+      const stackPoints = step.stack.map(idx => points[sortedIdxs[idx]]).filter(p => p);
+      if (stackPoints.length > 1) {
+        ctx.strokeStyle = "rgba(99,102,241,0.6)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(stackPoints[0].x, stackPoints[0].y);
+        for (let i = 1; i < stackPoints.length; i++) {
+          ctx.lineTo(stackPoints[i].x, stackPoints[i].y);
+        }
+        ctx.stroke();
+      }
+    }
+  }
+
   points.forEach((p, i) => {
     const isHighlight = highlight.includes(i);
     const isHighlight2 = highlight2.includes(i);
